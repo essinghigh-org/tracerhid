@@ -79,13 +79,13 @@ static int status_entry_handler(struct kretprobe_instance *ri, struct pt_regs *r
     return 0; // Return 0 to allow the hooked function to proceed normally
 }
 
-// Return handler function called after the hooked function response
+// Return handler function called after the hooked function returns
 static int status_return_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
     struct tracerhid_data *data = (struct tracerhid_data *)ri->data; // Access the per-instance storage initialized in the entry handler
 
     if (data->ptrace_modified && data->task) {
-        task_lock(data->task);                   // Reaquire the task lock to safely restore ptrace flags
+        task_lock(data->task);                   // Reacquire the task lock to safely restore ptrace flags
         data->task->ptrace = data->saved_ptrace; // Restore the original ptrace value captured in the entry handler
         task_unlock(data->task);                 // Release the lock immediately after restoration
         put_task_struct(data->task);             // Drop the reference acquired in the entry handler to avoid leaks
@@ -121,14 +121,13 @@ static int maps_entry_handler(struct kretprobe_instance *ri, struct pt_regs *reg
     struct vm_area_struct *vma = (struct vm_area_struct *)regs->si; // Cast and assign the vm_area_struct pointer from registers (2nd argument on x86_64)
     struct file *f;                                                 // Declare a pointer to file struct for accessing file path
     
+    if (!m || !vma || !maps_path) return 0; // Bail out if any required pointers are NULL or maps_path not set
+    
     data->m = m;                    // Store the seq_file pointer for the return handler to manipulate
     data->entry_count = m->count;   // Snapshot the current buffer length before show_map_vma writes
     data->should_hide = false;      // Initialize hide flag to false until we confirm a match
-
-    // Basic sanity checks to avoid crashes if arguments are invalid
-    if (!m || !vma || !maps_path) return 0; // Bail out if any required pointers are NULL or maps_path not set
     
-    // Check if this VMA belongs to our target PID
+    // Check if this VMA has a file we want to hide (global hiding for all processes)
     f = vma->vm_file;                                         // Get the file associated with this VMA (if any)
     if (f && f->f_path.dentry) {                              // Ensure the file and its dentry exist
         const char *filename = f->f_path.dentry->d_name.name; // Extract the filename from the dentry
@@ -148,7 +147,7 @@ static int maps_return_handler(struct kretprobe_instance *ri, struct pt_regs *re
 {
     struct mapshid_data *data = (struct mapshid_data *)ri->data; // Access the per-instance storage initialized in the entry handler
 
-    if (data->should_hide) { // Only proceed if the entry handler flagged this for hiding
+    if (data->should_hide && data->m) { // Only proceed if the entry handler flagged this for hiding and m is valid
         // Rewind the buffer pointer.
         // The kernel wrote the line, but we tell the seq_file logic
         // that the buffer ends exactly where it started.
@@ -190,6 +189,7 @@ static int __init tracerhid_init(void)
     if (ret < 0) {
         pr_err("Failed to register show_map_vma probe: %d\n", ret);
         unregister_kretprobe(&kp_status); // Cleanup first probe if second fails
+        synchronize_rcu();                // Ensure all RCU callbacks complete before returning
         return ret;
     }
     
