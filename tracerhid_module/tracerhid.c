@@ -98,7 +98,7 @@ static struct kretprobe kp_status = {
     .entry_handler = status_entry_handler,      // Assign the entry handler function
     .handler = status_return_handler,           // Assign the return handler function
     .data_size = sizeof(struct tracerhid_data), // Allocate per-instance storage for ptrace bookkeeping
-    .maxactive = 32,                            // Allow at least one probe per CPU to avoid dropped instances (set properly in init)
+    .maxactive = 0,                             // Allow at least one probe per CPU to avoid dropped instances (this is set in init)
 };
 
 // ==========================================
@@ -158,12 +158,13 @@ static int maps_return_handler(struct kretprobe_instance *ri, struct pt_regs *re
     return 0; // Return 0 to signal successful completion
 }
 
+// Define the kretprobe for show_map_vma
 static struct kretprobe kp_maps = {
     .kp.symbol_name = "show_map_vma",         // Set the symbol to hook: show_map_vma
     .entry_handler = maps_entry_handler,      // Assign the entry handler function
     .handler = maps_return_handler,           // Assign the return handler function
     .data_size = sizeof(struct mapshid_data), // Allocate per-instance storage for maps hiding bookkeeping
-    .maxactive = 20                           // Allow at least one probe per CPU to avoid dropped instances (set properly in init)
+    .maxactive = 0,                           // Allow at least one probe per CPU to avoid dropped instances (this is set in init)
 };
 
 // ==========================================
